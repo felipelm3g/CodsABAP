@@ -21,10 +21,10 @@ DATA: t_values TYPE TABLE OF dd07v.
 
 TYPES: BEGIN OF ty_saida,
          icon    TYPE icon-id,
-*         chamd   TYPE zchamados-chamd,
          trkorr  TYPE e070-trkorr,
          ddtext  TYPE dd07v-ddtext,
          as4text TYPE e07t-as4text,
+         as4user TYPE e070-as4user,
          as4date TYPE e070-as4date,
          as4time TYPE e070-as4time,
        END OF ty_saida.
@@ -36,16 +36,15 @@ SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
 PARAMETER: p_user TYPE uname DEFAULT sy-uname.
 SELECTION-SCREEN END OF BLOCK b1.
 SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
-PARAMETER: p_all RADIOBUTTON GROUP rad1 DEFAULT 'X', "Exibir todas
+PARAMETER: p_all RADIOBUTTON GROUP rad1, "Exibir todas
            p_done RADIOBUTTON GROUP rad1, "Exibir somente as liberadas
-           p_doing RADIOBUTTON GROUP rad1. "Exibir somente as não liberadas
+           p_doing RADIOBUTTON GROUP rad1 DEFAULT 'X'. "Exibir somente as não liberadas
 SELECTION-SCREEN END OF BLOCK b2.
 SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE text-003.
 PARAMETER: p_others AS CHECKBOX DEFAULT space MODIF ID 001. "Exibir outras que tem task com seu usuario
 SELECTION-SCREEN END OF BLOCK b3.
 
 INITIALIZATION.
-
 
 START-OF-SELECTION.
 
@@ -121,15 +120,15 @@ FORM f_selecionar_dados.
   CLEAR rl_trfunc.
   rl_trfunc-option = 'EQ'.
   rl_trfunc-sign = 'I'.
-  rl_trfunc-low = 'K'.
+  rl_trfunc-low = 'K'. "Custom
   APPEND rl_trfunc TO r_trfunc.
-  rl_trfunc-low = 'W'.
+  rl_trfunc-low = 'W'. "Workbenk
   APPEND rl_trfunc TO r_trfunc.
 
   SELECT * FROM icon
       INTO TABLE t_icon.
 
-  "Selecionar Requests WorkBench
+  "Selecionar Requests
   SELECT * FROM e070
     INTO TABLE t_e070
     WHERE as4user EQ p_user
@@ -154,36 +153,36 @@ FORM f_selecionar_dados.
   ENDIF.
 
   IF p_others IS NOT INITIAL.
-*
-*    SELECT * FROM e070
-*    INTO TABLE t_e070_aux
-*    WHERE as4user EQ p_user.
-*
-*    IF sy-subrc IS NOT INITIAL.
-*      MESSAGE 'Dados não encontrado' TYPE 'E'.
-*    ENDIF.
-*
-*    SORT t_e070_aux BY strkorr.
-*    DELETE ADJACENT DUPLICATES FROM t_e070_aux COMPARING strkorr.
-*    DELETE t_e070_aux WHERE strkorr IS INITIAL.
-*
-*    LOOP AT t_e070_aux.
-*      READ TABLE t_e070 WITH KEY trkorr = t_e070_aux-strkorr TRANSPORTING NO FIELDS BINARY SEARCH.
-*      IF sy-subrc IS NOT INITIAL.
-*        rl_trkorr-low = t_e070_aux-strkorr.
-*        APPEND rl_trkorr TO r_trkorr.
-*        CLEAR rl_trkorr-low.
-*      ENDIF.
-*    ENDLOOP.
-*
-*    IF r_trkorr[] IS NOT INITIAL.
-*
-*      SELECT * FROM e070
-*      APPENDING TABLE t_e070
-*      WHERE trkorr IN r_trkorr
-*        AND trfunction NE 'T'.
-*
-*    ENDIF.
+
+    SELECT * FROM e070
+      INTO TABLE t_e070_aux
+      WHERE as4user EQ p_user.
+
+    IF sy-subrc IS INITIAL.
+
+      SORT t_e070_aux BY strkorr.
+      DELETE ADJACENT DUPLICATES FROM t_e070_aux COMPARING strkorr.
+      DELETE t_e070_aux WHERE strkorr IS INITIAL.
+
+      LOOP AT t_e070_aux.
+        READ TABLE t_e070 WITH KEY trkorr = t_e070_aux-strkorr TRANSPORTING NO FIELDS BINARY SEARCH.
+        IF sy-subrc IS NOT INITIAL.
+          rl_trkorr-low = t_e070_aux-strkorr.
+          APPEND rl_trkorr TO r_trkorr.
+          CLEAR rl_trkorr-low.
+        ENDIF.
+      ENDLOOP.
+
+      IF r_trkorr[] IS NOT INITIAL.
+
+        SELECT * FROM e070
+        APPENDING TABLE t_e070
+        WHERE trkorr IN r_trkorr
+          AND trfunction NE 'T'.
+
+      ENDIF.
+
+    ENDIF.
 
   ENDIF.
 
@@ -217,6 +216,14 @@ FORM f_montar_saida.
   SORT t_values BY domvalue_l.
   SORT t_e07t BY trkorr.
 
+  IF p_done IS NOT INITIAL.
+    DELETE t_e070 WHERE trstatus NE 'R'.
+  ENDIF.
+
+  IF p_doing IS NOT INITIAL.
+    DELETE t_e070 WHERE trstatus NE 'D'.
+  ENDIF.
+
   LOOP AT t_e070 INTO wa_e070.
 
     IF wa_e070-trstatus EQ 'R'.
@@ -245,6 +252,7 @@ FORM f_montar_saida.
       wa_saida-as4text = wa_e07t-as4text.
     ENDIF.
 
+    wa_saida-as4user = wa_e070-as4user.
     wa_saida-as4date = wa_e070-as4date.
     wa_saida-as4time = wa_e070-as4time.
 
@@ -263,6 +271,7 @@ FORM f_montar_fieldcat.
         'TRKORR'     'Ordem/tarefa',
         'DDTEXT'     'Tipo',
         'AS4TEXT'    'Descrição breve',
+        'AS4USER'    'Titular',
         'AS4DATE'    'Data',
         'AS4TIME'    'Hora'.
 
@@ -707,7 +716,7 @@ FORM user_command USING p_ucomm LIKE sy-ucomm
             end_line    = 20 ).
 
           lr_columns = go_alv->get_columns( ).
-          lr_columns->set_optimize('X').
+          lr_columns->set_optimize( 'X' ).
 
           go_alv->display( ).
 
