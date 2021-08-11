@@ -1,0 +1,856 @@
+REPORT  zrequest_control.
+
+TYPE-POOLS: slis.
+
+DATA: v_answer TYPE c.
+
+DATA: t_icon  TYPE TABLE OF icon,
+      wa_icon TYPE icon.
+
+DATA: t_e070    TYPE TABLE OF e070,
+      t_e070cps TYPE TABLE OF e070,
+      t_e07tcps TYPE TABLE OF e07t,
+      wa_e070   TYPE e070.
+
+DATA: t_e07t  TYPE TABLE OF e07t,
+      wa_e07t TYPE e07t.
+
+DATA: t_fieldcat TYPE slis_t_fieldcat_alv.
+
+DATA: t_values TYPE TABLE OF dd07v.
+
+TYPES: BEGIN OF ty_saida,
+         icon    TYPE icon-id,
+*         chamd   TYPE zchamados-chamd,
+         trkorr  TYPE e070-trkorr,
+         ddtext  TYPE dd07v-ddtext,
+         as4text TYPE e07t-as4text,
+         as4date TYPE e070-as4date,
+         as4time TYPE e070-as4time,
+       END OF ty_saida.
+
+DATA: t_saida  TYPE TABLE OF ty_saida,
+      wa_saida TYPE ty_saida.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+PARAMETER: p_user TYPE uname DEFAULT sy-uname.
+SELECTION-SCREEN END OF BLOCK b1.
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+PARAMETER: p_all RADIOBUTTON GROUP rad1 DEFAULT 'X', "Exibir todas
+           p_done RADIOBUTTON GROUP rad1, "Exibir somente as liberadas
+           p_doing RADIOBUTTON GROUP rad1. "Exibir somente as não liberadas
+SELECTION-SCREEN END OF BLOCK b2.
+SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE text-003.
+PARAMETER: p_others AS CHECKBOX DEFAULT space MODIF ID 001. "Exibir outras que tem task com seu usuario
+SELECTION-SCREEN END OF BLOCK b3.
+
+INITIALIZATION.
+
+
+START-OF-SELECTION.
+
+  IF p_others IS NOT INITIAL.
+
+    CALL FUNCTION 'POPUP_TO_CONFIRM'
+      EXPORTING
+        titlebar              = 'Deseja Continuar?'
+        text_question         = 'A opção "Requests de outro usuario" traz as request de outros usuario que possuem tasks com seu usuario'
+        text_button_1         = 'Continuar'
+        text_button_2         = 'Cancelar'
+        display_cancel_button = space
+        popup_type            = 'ICON_MESSAGE_WARNING'
+      IMPORTING
+        answer                = v_answer
+      EXCEPTIONS
+        text_not_found        = 1
+        OTHERS                = 2.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+    CHECK v_answer EQ '1'.
+
+  ENDIF.
+
+  PERFORM: f_get_text_domin,
+           f_selecionar_dados,
+           f_montar_saida,
+           f_exibir_dados.
+
+
+END-OF-SELECTION.
+
+*&---------------------------------------------------------------------*
+*&      Form  f_get_text_domin
+*&---------------------------------------------------------------------*
+FORM f_get_text_domin.
+
+  CALL FUNCTION 'GET_DOMAIN_VALUES'
+    EXPORTING
+      domname         = 'TRFUNCTION'
+    TABLES
+      values_tab      = t_values
+    EXCEPTIONS
+      no_values_found = 1
+      OTHERS          = 2.
+
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+
+ENDFORM.                    "f_get_text_domin
+*&---------------------------------------------------------------------*
+*&      Form  f_selecionar_dados
+*&---------------------------------------------------------------------*
+FORM f_selecionar_dados.
+
+  DATA: t_e070_aux TYPE TABLE OF e070 WITH HEADER LINE.
+
+  DATA: r_trkorr  TYPE RANGE OF e070-trkorr,
+        rl_trkorr LIKE LINE OF r_trkorr.
+
+  DATA: r_trfunc  TYPE RANGE OF e070-trfunction,
+        rl_trfunc LIKE LINE OF r_trfunc.
+
+  rl_trkorr-option = 'EQ'.
+  rl_trkorr-sign = 'I'.
+
+  CLEAR rl_trfunc.
+  rl_trfunc-option = 'EQ'.
+  rl_trfunc-sign = 'I'.
+  rl_trfunc-low = 'K'.
+  APPEND rl_trfunc TO r_trfunc.
+  rl_trfunc-low = 'W'.
+  APPEND rl_trfunc TO r_trfunc.
+
+  SELECT * FROM icon
+      INTO TABLE t_icon.
+
+  "Selecionar Requests WorkBench
+  SELECT * FROM e070
+    INTO TABLE t_e070
+    WHERE as4user EQ p_user
+      AND trfunction IN r_trfunc
+      AND strkorr EQ space.
+
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE 'Dados não encontrado' TYPE 'E'.
+  ENDIF.
+
+  SORT t_e070 BY as4date as4time.
+
+  "Selecionar Requests Copias
+  SELECT * FROM e070
+    INTO TABLE t_e070cps
+    WHERE as4user EQ p_user
+      AND trfunction EQ 'T'
+      AND strkorr EQ space.
+
+  IF sy-subrc IS INITIAL.
+    SORT t_e070cps BY as4date as4time.
+  ENDIF.
+
+  IF p_others IS NOT INITIAL.
+*
+*    SELECT * FROM e070
+*    INTO TABLE t_e070_aux
+*    WHERE as4user EQ p_user.
+*
+*    IF sy-subrc IS NOT INITIAL.
+*      MESSAGE 'Dados não encontrado' TYPE 'E'.
+*    ENDIF.
+*
+*    SORT t_e070_aux BY strkorr.
+*    DELETE ADJACENT DUPLICATES FROM t_e070_aux COMPARING strkorr.
+*    DELETE t_e070_aux WHERE strkorr IS INITIAL.
+*
+*    LOOP AT t_e070_aux.
+*      READ TABLE t_e070 WITH KEY trkorr = t_e070_aux-strkorr TRANSPORTING NO FIELDS BINARY SEARCH.
+*      IF sy-subrc IS NOT INITIAL.
+*        rl_trkorr-low = t_e070_aux-strkorr.
+*        APPEND rl_trkorr TO r_trkorr.
+*        CLEAR rl_trkorr-low.
+*      ENDIF.
+*    ENDLOOP.
+*
+*    IF r_trkorr[] IS NOT INITIAL.
+*
+*      SELECT * FROM e070
+*      APPENDING TABLE t_e070
+*      WHERE trkorr IN r_trkorr
+*        AND trfunction NE 'T'.
+*
+*    ENDIF.
+
+  ENDIF.
+
+  SORT t_e070 BY trkorr.
+  DELETE ADJACENT DUPLICATES FROM t_e070 COMPARING trkorr.
+
+  SELECT * FROM e07t
+    INTO TABLE t_e07t
+    FOR ALL ENTRIES IN t_e070
+    WHERE trkorr EQ t_e070-trkorr.
+
+  IF t_e070cps[] IS NOT INITIAL.
+    SELECT * FROM e07t
+        APPENDING TABLE t_e07t
+        FOR ALL ENTRIES IN t_e070cps
+        WHERE trkorr EQ t_e070cps-trkorr.
+
+  ENDIF.
+
+  SORT t_e07t BY trkorr.
+  DELETE ADJACENT DUPLICATES FROM t_e07t COMPARING trkorr.
+
+ENDFORM.                    " f_selecionar_dados
+*&---------------------------------------------------------------------*
+*&      Form  f_montar_saida
+*&---------------------------------------------------------------------*
+FORM f_montar_saida.
+
+  DATA: wa_dd07v TYPE dd07v.
+
+  SORT t_values BY domvalue_l.
+  SORT t_e07t BY trkorr.
+
+  LOOP AT t_e070 INTO wa_e070.
+
+    IF wa_e070-trstatus EQ 'R'.
+      READ TABLE t_icon INTO wa_icon WITH KEY name = 'ICON_OKAY'.
+      IF sy-subrc IS INITIAL.
+        wa_saida-icon = wa_icon-id.
+      ENDIF.
+    ENDIF.
+
+    IF wa_e070-trstatus EQ 'D'.
+      READ TABLE t_icon INTO wa_icon WITH KEY name = 'ICON_TOOLS'.
+      IF sy-subrc IS INITIAL.
+        wa_saida-icon = wa_icon-id.
+      ENDIF.
+    ENDIF.
+
+    wa_saida-trkorr = wa_e070-trkorr.
+
+    READ TABLE t_values INTO wa_dd07v WITH KEY domvalue_l = wa_e070-trfunction BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      wa_saida-ddtext = wa_dd07v-ddtext.
+    ENDIF.
+
+    READ TABLE t_e07t INTO wa_e07t WITH KEY trkorr = wa_e070-trkorr BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      wa_saida-as4text = wa_e07t-as4text.
+    ENDIF.
+
+    wa_saida-as4date = wa_e070-as4date.
+    wa_saida-as4time = wa_e070-as4time.
+
+    APPEND wa_saida TO t_saida.
+    CLEAR wa_saida.
+  ENDLOOP.
+
+ENDFORM.                    "f_montar_saida
+*&---------------------------------------------------------------------*
+*&      Form  f_montar_fieldcat
+*&---------------------------------------------------------------------*
+FORM f_montar_fieldcat.
+
+  PERFORM f_preencher_fieldcat USING:
+        'ICON'       'St.',
+        'TRKORR'     'Ordem/tarefa',
+        'DDTEXT'     'Tipo',
+        'AS4TEXT'    'Descrição breve',
+        'AS4DATE'    'Data',
+        'AS4TIME'    'Hora'.
+
+ENDFORM.                    "f_montar_fieldcat
+*&---------------------------------------------------------------------*
+*&      Form  f_preencher_fieldcat
+*&---------------------------------------------------------------------*
+FORM f_preencher_fieldcat USING p_fieldname
+                                p_seltext_m.
+
+  DATA: wa_fieldcat LIKE LINE OF t_fieldcat.
+
+  wa_fieldcat-fieldname = p_fieldname.
+  wa_fieldcat-seltext_m = p_seltext_m.
+
+  APPEND wa_fieldcat TO t_fieldcat.
+
+ENDFORM.                    "f_preencher_fieldcat
+*&---------------------------------------------------------------------*
+*&      Form  f_exibir_dados
+*&---------------------------------------------------------------------*
+FORM f_exibir_dados.
+
+  DATA: wa_layout TYPE slis_layout_alv.
+
+  PERFORM f_montar_fieldcat.
+
+  wa_layout-colwidth_optimize = 'X'.
+  wa_layout-zebra             = 'X'.
+
+  SORT t_saida DESCENDING BY as4date as4time.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+*     I_INTERFACE_CHECK        = ' '
+*     I_BYPASSING_BUFFER       = ' '
+*     I_BUFFER_ACTIVE          = ' '
+      i_callback_program       = sy-repid
+      i_callback_pf_status_set = 'ZSTATUS'
+      i_callback_user_command  = 'USER_COMMAND'
+*     I_CALLBACK_TOP_OF_PAGE   = ' '
+*     I_CALLBACK_HTML_TOP_OF_PAGE       = ' '
+*     I_CALLBACK_HTML_END_OF_LIST       = ' '
+*     I_STRUCTURE_NAME         =
+*     I_BACKGROUND_ID          = ' '
+*     I_GRID_TITLE             =
+*     I_GRID_SETTINGS          =
+      is_layout                = wa_layout
+      it_fieldcat              = t_fieldcat
+*     IT_EXCLUDING             =
+*     IT_SPECIAL_GROUPS        =
+*     IT_SORT                  =
+*     IT_FILTER                =
+*     IS_SEL_HIDE              =
+*     I_DEFAULT                = 'X'
+      i_save                   = 'X'
+*     IS_VARIANT               =
+*     IT_EVENTS                =
+*     IT_EVENT_EXIT            =
+*     IS_PRINT                 =
+*     IS_REPREP_ID             =
+*     I_SCREEN_START_COLUMN    = 0
+*     I_SCREEN_START_LINE      = 0
+*     I_SCREEN_END_COLUMN      = 0
+*     I_SCREEN_END_LINE        = 0
+*     I_HTML_HEIGHT_TOP        = 0
+*     I_HTML_HEIGHT_END        = 0
+*     IT_ALV_GRAPHICS          =
+*     IT_HYPERLINK             =
+*     IT_ADD_FIELDCAT          =
+*     IT_EXCEPT_QINFO          =
+*     IR_SALV_FULLSCREEN_ADAPTER        =
+*   IMPORTING
+*     E_EXIT_CAUSED_BY_CALLER  =
+*     ES_EXIT_CAUSED_BY_USER   =
+    TABLES
+      t_outtab                 = t_saida
+    EXCEPTIONS
+      program_error            = 1
+      OTHERS                   = 2.
+
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+
+
+ENDFORM.                    "f_exibir_dados
+*&---------------------------------------------------------------------*
+*&      Form  zstatus
+*&---------------------------------------------------------------------*
+FORM zstatus USING extab TYPE slis_t_extab.
+  "SET PF-STATUS 'ZSTAT' EXCLUDING extab.
+  SET PF-STATUS 'ZSTATS'.
+ENDFORM.                    " zstatus
+*&---------------------------------------------------------------------*
+*&      Form  USER_COMMAND
+*&---------------------------------------------------------------------*
+FORM user_command USING p_ucomm LIKE sy-ucomm
+                        p_selfield TYPE slis_selfield.
+
+  DATA: lv_text   TYPE string,
+        lv_return TYPE c LENGTH 20,
+        lw_e070   TYPE e070.
+*        lv_chamd  TYPE zchamados-chamd.
+
+  DATA: wa_request  TYPE trwbo_request_header,
+        it_e070_aux TYPE TABLE OF e070,
+        wa_e070_aux LIKE LINE OF it_e070_aux.
+
+  DATA: t_listcp TYPE TABLE OF ty_saida.
+  DATA: wa_dd07v TYPE dd07v.
+  DATA: lv_as4text TYPE e07t-as4text,
+        lv_count   TYPE i.
+
+  FIELD-SYMBOLS: <fs_saida>   TYPE ty_saida.
+
+  IF p_ucomm EQ 'TRANSPCOP'.
+
+    READ TABLE t_saida INTO wa_saida INDEX p_selfield-tabindex.
+    IF sy-subrc IS INITIAL.
+
+      CLEAR: v_answer, lw_e070.
+
+      SELECT SINGLE * FROM e070
+        INTO lw_e070
+        WHERE trkorr EQ wa_saida-trkorr.
+
+      IF sy-subrc IS INITIAL.
+
+        IF lw_e070-trstatus EQ 'R'.
+
+          MESSAGE 'Request já liberada, não pode ser feito transporte de cópia' TYPE 'I' DISPLAY LIKE 'E'.
+
+        ELSE.
+
+          CONCATENATE 'Deseja transportar uma cópia da request' wa_saida-trkorr INTO lv_text SEPARATED BY space.
+          CALL FUNCTION 'POPUP_TO_CONFIRM'
+            EXPORTING
+              titlebar              = 'Deseja Continuar?'
+              text_question         = lv_text
+              text_button_1         = 'Sim'
+              text_button_2         = 'Não'
+              display_cancel_button = space
+            IMPORTING
+              answer                = v_answer
+            EXCEPTIONS
+              text_not_found        = 1
+              OTHERS                = 2.
+
+          IF sy-subrc <> 0.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                    WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+          ENDIF.
+
+          CHECK v_answer EQ '1'.
+
+          REFRESH: t_e07tcps, t_e070cps, t_listcp.
+
+          lv_as4text = wa_saida-as4text.
+          CONCATENATE '%' lv_as4text INTO lv_as4text.
+          REPLACE ALL OCCURRENCES OF '[N]' IN lv_as4text WITH '%'.
+
+          SELECT * FROM e07t
+            INTO TABLE t_e07tcps
+            WHERE as4text LIKE lv_as4text.
+
+          IF sy-subrc IS INITIAL
+            AND t_e07tcps[] IS NOT INITIAL.
+
+            SELECT COUNT(*) FROM e070
+              INTO lv_count
+              FOR ALL ENTRIES IN t_e07tcps
+              WHERE trkorr EQ t_e07tcps-trkorr
+                AND trfunction EQ 'T'.
+
+            IF sy-subrc IS INITIAL.
+              lv_count = lv_count + 1.
+            ELSE.
+              lv_count = 1.
+            ENDIF.
+
+            CLEAR lv_as4text.
+            lv_as4text = wa_saida-as4text.
+            REPLACE ALL OCCURRENCES OF '[N]' IN lv_as4text WITH ''.
+            lv_text = lv_count.
+            CONCATENATE '[CP' lv_text ']' INTO lv_text.
+            CONDENSE lv_text NO-GAPS.
+            CONCATENATE lv_as4text lv_text INTO lv_as4text SEPARATED BY space.
+
+            CALL FUNCTION 'TR_INSERT_REQUEST_WITH_TASKS'
+              EXPORTING
+                iv_type           = 'T'
+                iv_text           = lv_as4text
+                iv_owner          = sy-uname
+                iv_target         = 'EQ2.500'
+              IMPORTING
+                es_request_header = wa_request
+              EXCEPTIONS
+                insert_failed     = 1
+                enqueue_failed    = 2
+                OTHERS            = 3.
+
+            IF sy-subrc IS INITIAL.
+
+              SELECT * FROM e070
+                INTO TABLE it_e070_aux
+                WHERE strkorr EQ wa_saida-trkorr.
+
+              IF sy-subrc IS INITIAL.
+                LOOP AT it_e070_aux INTO wa_e070_aux.
+                  CALL FUNCTION 'TR_COPY_COMM'
+                    EXPORTING
+                      wi_dialog                = 'X'
+                      wi_trkorr_from           = wa_e070_aux-trkorr
+                      wi_trkorr_to             = wa_request-trkorr
+                      wi_without_documentation = ''.
+                ENDLOOP.
+              ENDIF.
+
+              CALL FUNCTION 'TRINT_RELEASE_REQUEST'
+                EXPORTING
+                  iv_trkorr                   = wa_request-trkorr
+                  iv_dialog                   = 'X'
+                  iv_as_background_job        = ' '
+                  iv_success_message          = 'X'
+                  iv_without_objects_check    = ' '
+                  iv_without_locking          = 'X'
+                  iv_display_export_log       = 'X'
+                EXCEPTIONS
+                  cts_initialization_failure  = 1
+                  enqueue_failed              = 2
+                  no_authorization            = 3
+                  invalid_request             = 4
+                  request_already_released    = 5
+                  repeat_too_early            = 6
+                  object_lock_error           = 7
+                  object_check_error          = 8
+                  docu_missing                = 9
+                  db_access_error             = 10
+                  action_aborted_by_user      = 11
+                  export_failed               = 12
+                  execute_objects_check       = 13
+                  release_in_bg_mode          = 14
+                  release_in_bg_mode_w_objchk = 15
+                  error_in_export_methods     = 16
+                  object_lang_error           = 17
+                  OTHERS                      = 18.
+
+              IF sy-subrc IS INITIAL.
+                CONCATENATE 'Request de copia' wa_request-trkorr 'criada e liberada'  INTO lv_text SEPARATED BY space.
+                MESSAGE lv_text TYPE 'I' DISPLAY LIKE 'S'.
+              ELSE.
+                MESSAGE ID sy-msgid TYPE 'I' NUMBER sy-msgno
+                        WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 DISPLAY LIKE sy-msgty.
+              ENDIF.
+
+            ELSE.
+              MESSAGE ID sy-msgid TYPE 'I' NUMBER sy-msgno
+                      WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 DISPLAY LIKE sy-msgty.
+            ENDIF.
+
+          ENDIF.
+
+        ENDIF.
+
+      ENDIF.
+
+    ENDIF.
+  ENDIF.
+
+  IF p_ucomm EQ 'LIBERAR'.
+
+    CLEAR wa_saida.
+
+    READ TABLE t_saida INTO wa_saida INDEX p_selfield-tabindex.
+    IF sy-subrc IS INITIAL.
+
+      CLEAR: v_answer, lw_e070.
+
+      SELECT SINGLE * FROM e070
+        INTO lw_e070
+        WHERE trkorr EQ wa_saida-trkorr.
+
+      IF sy-subrc IS INITIAL.
+
+        IF lw_e070-trstatus EQ 'R'.
+
+          MESSAGE 'Request já liberada, não pode ser feito a liberação' TYPE 'I' DISPLAY LIKE 'E'.
+
+        ELSE.
+
+          CONCATENATE 'Deseja liberar a request' wa_saida-trkorr INTO lv_text SEPARATED BY space.
+          CALL FUNCTION 'POPUP_TO_CONFIRM'
+            EXPORTING
+              titlebar              = 'Deseja Continuar?'
+              text_question         = lv_text
+              text_button_1         = 'Sim'
+              text_button_2         = 'Não'
+              display_cancel_button = space
+            IMPORTING
+              answer                = v_answer
+            EXCEPTIONS
+              text_not_found        = 1
+              OTHERS                = 2.
+
+          IF sy-subrc <> 0.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                    WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+          ENDIF.
+
+          CHECK v_answer EQ '1'.
+
+          PERFORM f_liberar_reqest USING wa_saida-trkorr CHANGING p_selfield-refresh.
+          READ TABLE t_saida ASSIGNING <fs_saida> INDEX p_selfield-tabindex.
+          IF sy-subrc IS INITIAL.
+            READ TABLE t_icon INTO wa_icon WITH KEY name = 'ICON_OKAY'.
+            IF sy-subrc IS INITIAL.
+              <fs_saida>-icon = wa_icon-id.
+            ENDIF.
+          ENDIF.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+  ENDIF.
+
+  IF p_ucomm EQ 'VISUALIZAR'.
+
+    READ TABLE t_saida INTO wa_saida INDEX p_selfield-tabindex.
+    IF sy-subrc IS INITIAL.
+
+      CALL FUNCTION 'TR_PRESENT_REQUEST'
+        EXPORTING
+          iv_trkorr = wa_saida-trkorr.
+
+    ENDIF.
+
+  ENDIF.
+
+  IF p_ucomm EQ 'LISTCP'.
+
+    READ TABLE t_saida INTO wa_saida INDEX p_selfield-tabindex.
+    IF sy-subrc IS INITIAL.
+
+      REFRESH: t_e07tcps, t_e070cps, t_listcp.
+
+      lv_as4text = wa_saida-as4text.
+      CONCATENATE '%' lv_as4text INTO lv_as4text.
+      REPLACE ALL OCCURRENCES OF '[N]' IN lv_as4text WITH '%'.
+
+      SELECT * FROM e07t
+        INTO TABLE t_e07tcps
+        WHERE as4text LIKE lv_as4text.
+
+      IF sy-subrc IS INITIAL
+        AND t_e07tcps[] IS NOT INITIAL.
+
+        SELECT * FROM e070
+          INTO TABLE t_e070cps
+          FOR ALL ENTRIES IN t_e07tcps
+          WHERE trkorr EQ t_e07tcps-trkorr
+            AND trfunction EQ 'T'.
+
+        IF sy-subrc IS INITIAL
+          AND t_e070cps[] IS NOT INITIAL.
+
+          SORT t_e070cps BY as4date as4time.
+
+          LOOP AT t_e070cps INTO wa_e070.
+
+            IF wa_e070-trstatus EQ 'R'.
+              READ TABLE t_icon INTO wa_icon WITH KEY name = 'ICON_OKAY'.
+              IF sy-subrc IS INITIAL.
+                wa_saida-icon = wa_icon-id.
+              ENDIF.
+            ENDIF.
+
+            IF wa_e070-trstatus EQ 'D'.
+              READ TABLE t_icon INTO wa_icon WITH KEY name = 'ICON_TOOLS'.
+              IF sy-subrc IS INITIAL.
+                wa_saida-icon = wa_icon-id.
+              ENDIF.
+            ENDIF.
+
+            wa_saida-trkorr = wa_e070-trkorr.
+
+            READ TABLE t_values INTO wa_dd07v WITH KEY domvalue_l = wa_e070-trfunction BINARY SEARCH.
+            IF sy-subrc IS INITIAL.
+              wa_saida-ddtext = wa_dd07v-ddtext.
+            ENDIF.
+
+
+            READ TABLE t_e07t INTO wa_e07t WITH KEY trkorr = wa_e070-trkorr BINARY SEARCH.
+            IF sy-subrc IS INITIAL.
+              wa_saida-as4text = wa_e07t-as4text.
+            ELSE.
+              SELECT SINGLE * FROM e07t INTO wa_e07t WHERE trkorr = wa_e070-trkorr.
+              IF sy-subrc IS INITIAL.
+                wa_saida-as4text = wa_e07t-as4text.
+              ENDIF.
+            ENDIF.
+
+            wa_saida-as4date = wa_e070-as4date.
+            wa_saida-as4time = wa_e070-as4time.
+
+            APPEND wa_saida TO t_listcp.
+            CLEAR wa_saida.
+          ENDLOOP.
+
+        ENDIF.
+
+      ENDIF.
+
+      IF t_listcp[] IS NOT INITIAL.
+
+        DATA: go_alv TYPE REF TO cl_salv_table.
+
+        TRY.
+            cl_salv_table=>factory(
+              IMPORTING
+                r_salv_table = go_alv
+              CHANGING
+                t_table      = t_listcp[] ).
+
+          CATCH cx_salv_msg.
+        ENDTRY.
+
+        DATA: lr_functions TYPE REF TO cl_salv_functions_list,
+              lr_columns   TYPE REF TO cl_salv_columns_table.
+
+        lr_functions = go_alv->get_functions( ).
+        lr_functions->set_all( 'X' ).
+
+        IF go_alv IS BOUND.
+
+          go_alv->set_screen_popup(
+            start_column = 2
+            end_column  = 100
+            start_line  = 10
+            end_line    = 20 ).
+
+          lr_columns = go_alv->get_columns( ).
+          lr_columns->set_optimize('X').
+
+          go_alv->display( ).
+
+        ENDIF.
+
+      ELSE.
+        MESSAGE 'Não existe transporte de copia para essa request' TYPE 'I'.
+      ENDIF.
+
+    ENDIF.
+
+  ENDIF.
+
+  IF <fs_saida> IS ASSIGNED.
+    UNASSIGN <fs_saida>.
+  ENDIF.
+
+ENDFORM.                    "USER_COMMAND
+*&---------------------------------------------------------------------*
+*&      Form  f_liberar_reqest
+*&---------------------------------------------------------------------*
+FORM f_liberar_reqest USING p_trkorr CHANGING p_refresh.
+
+  DATA: t_e070_aux  TYPE TABLE OF e070,
+        wa_e070_aux TYPE e070.
+
+  SELECT * FROM e070
+    INTO TABLE t_e070_aux
+    WHERE strkorr EQ p_trkorr.
+
+  IF sy-subrc IS INITIAL
+    AND t_e070_aux[] IS NOT INITIAL.
+
+    LOOP AT t_e070_aux INTO wa_e070_aux.
+
+      CALL FUNCTION 'TRINT_RELEASE_REQUEST'
+        EXPORTING
+          iv_trkorr                   = wa_e070_aux-trkorr
+          iv_dialog                   = 'X'
+          iv_as_background_job        = ' '
+          iv_success_message          = 'X'
+          iv_without_objects_check    = ' '
+          iv_without_locking          = 'X'
+          iv_display_export_log       = ' '
+        EXCEPTIONS
+          cts_initialization_failure  = 1
+          enqueue_failed              = 2
+          no_authorization            = 3
+          invalid_request             = 4
+          request_already_released    = 5
+          repeat_too_early            = 6
+          object_lock_error           = 7
+          object_check_error          = 8
+          docu_missing                = 9
+          db_access_error             = 10
+          action_aborted_by_user      = 11
+          export_failed               = 12
+          execute_objects_check       = 13
+          release_in_bg_mode          = 14
+          release_in_bg_mode_w_objchk = 15
+          error_in_export_methods     = 16
+          object_lang_error           = 17
+          OTHERS                      = 18.
+
+      IF sy-subrc <> 0.
+        MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+      ENDIF.
+
+    ENDLOOP.
+
+    CALL FUNCTION 'TRINT_RELEASE_REQUEST'
+      EXPORTING
+        iv_trkorr                   = p_trkorr
+        iv_dialog                   = 'X'
+        iv_as_background_job        = ' '
+        iv_success_message          = 'X'
+        iv_without_objects_check    = ' '
+        iv_without_locking          = 'X'
+        iv_display_export_log       = ' '
+      EXCEPTIONS
+        cts_initialization_failure  = 1
+        enqueue_failed              = 2
+        no_authorization            = 3
+        invalid_request             = 4
+        request_already_released    = 5
+        repeat_too_early            = 6
+        object_lock_error           = 7
+        object_check_error          = 8
+        docu_missing                = 9
+        db_access_error             = 10
+        action_aborted_by_user      = 11
+        export_failed               = 12
+        execute_objects_check       = 13
+        release_in_bg_mode          = 14
+        release_in_bg_mode_w_objchk = 15
+        error_in_export_methods     = 16
+        object_lang_error           = 17
+        OTHERS                      = 18.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+  ELSE.
+
+    CALL FUNCTION 'TRINT_RELEASE_REQUEST'
+      EXPORTING
+        iv_trkorr                   = p_trkorr
+        iv_dialog                   = 'X'
+        iv_as_background_job        = ' '
+        iv_success_message          = 'X'
+        iv_without_objects_check    = ' '
+        iv_without_locking          = 'X'
+        iv_display_export_log       = ' '
+      EXCEPTIONS
+        cts_initialization_failure  = 1
+        enqueue_failed              = 2
+        no_authorization            = 3
+        invalid_request             = 4
+        request_already_released    = 5
+        repeat_too_early            = 6
+        object_lock_error           = 7
+        object_check_error          = 8
+        docu_missing                = 9
+        db_access_error             = 10
+        action_aborted_by_user      = 11
+        export_failed               = 12
+        execute_objects_check       = 13
+        release_in_bg_mode          = 14
+        release_in_bg_mode_w_objchk = 15
+        error_in_export_methods     = 16
+        object_lang_error           = 17
+        OTHERS                      = 18.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+  ENDIF.
+
+  p_refresh = 'X'.
+
+ENDFORM.                    "f_liberar_reqest
