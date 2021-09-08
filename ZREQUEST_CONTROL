@@ -164,9 +164,13 @@ FORM f_selecionar_dados.
       DELETE ADJACENT DUPLICATES FROM t_e070_aux COMPARING strkorr.
       DELETE t_e070_aux WHERE strkorr IS INITIAL.
 
+      SORT t_e070 BY trkorr.
+
       LOOP AT t_e070_aux.
         READ TABLE t_e070 WITH KEY trkorr = t_e070_aux-strkorr TRANSPORTING NO FIELDS BINARY SEARCH.
         IF sy-subrc IS NOT INITIAL.
+          rl_trkorr-option =  'EQ'.
+          rl_trkorr-sign = 'I'.
           rl_trkorr-low = t_e070_aux-strkorr.
           APPEND rl_trkorr TO r_trkorr.
           CLEAR rl_trkorr-low.
@@ -179,6 +183,11 @@ FORM f_selecionar_dados.
         APPENDING TABLE t_e070
         WHERE trkorr IN r_trkorr
           AND trfunction NE 'T'.
+
+        IF sy-subrc IS INITIAL.
+          SORT t_e070 BY trkorr.
+          DELETE ADJACENT DUPLICATES FROM t_e070 COMPARING trkorr.
+        ENDIF.
 
       ENDIF.
 
@@ -600,7 +609,7 @@ FORM user_command USING p_ucomm LIKE sy-ucomm
 
   ENDIF.
 
-  IF p_ucomm EQ 'VISUALIZAR'.
+  IF p_ucomm EQ 'VISUALIZAR' OR p_ucomm EQ '&IC1'.
 
     READ TABLE t_saida INTO wa_saida INDEX p_selfield-tabindex.
     IF sy-subrc IS INITIAL.
